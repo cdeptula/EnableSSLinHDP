@@ -250,6 +250,86 @@ EOF
 }
 
 #
+# Enable Hive  SSL encryption.  Stop all Hive services first
+#
+## each host gets its own SSL certificate
+## some of the keyimports may fail because the HBase services run on the same hosts as the Hadoop services
+function hiveSSLEnable() {
+
+    for host in ${ALL_HADOOP_SERVERS}; do
+        if [ -e "${host}.p12" ]; then continue; fi
+        openssl pkcs12 -export -in ${host}.crt -inkey ${host}.key -out ${host}.p12 -name ${host} -CAfile ca.crt -chain -passout pass:password
+    done
+
+    for host in ${ALL_HADOOP_SERVERS}; do
+        scp ${host}.p12 ${host}:/tmp/${host}.p12
+        scp ca.crt ${host}:/tmp/ca.crt
+        ssh $host "
+            keytool -import -noprompt -alias myOwnCA -file /tmp/ca.crt -storepass password -keypass password -keystore /etc/hadoop/conf/hadoop-private-keystore.jks
+            keytool --importkeystore -noprompt -deststorepass password -destkeypass password -destkeystore /etc/hadoop/conf/hadoop-private-keystore.jks -srckeystore /tmp/${host}.p12 -srcstoretype PKCS12 -srcstorepass password -alias ${host}
+
+            chmod 440 /etc/hadoop/conf/hadoop-private-keystore.jks
+            chown yarn:hadoop /etc/hadoop/conf/hadoop-private-keystore.jks
+            rm -f /tmp/ca.crt \"/tmp/${host}.p12\";
+            "
+    done
+
+    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
+        --config-type=hive-site --key="hive.server2.use.SSL"   --value="true",
+        --config-type=ssl-server --key="hive.server2.keystore.password"   --value="password",
+        --config-type=ssl-server --key="hive.server2.keystore.path"   --value="/etc/hadoop/conf/hadoop-private-keystore.jks"
+
+EOF
+    rm -f doSet_version*
+    # In Ambari, perform Start ALL
+
+    #validate through:
+}
+
+#
+# Enable Kafka  SSL encryption.  Stop all Kafka services first
+#
+## each host gets its own SSL certificate
+## some of the keyimports may fail because the HBase services run on the same hosts as the Hadoop services
+function kafkaSSLEnable() {
+
+    for host in ${ALL_HADOOP_SERVERS}; do
+        if [ -e "${host}.p12" ]; then continue; fi
+        openssl pkcs12 -export -in ${host}.crt -inkey ${host}.key -out ${host}.p12 -name ${host} -CAfile ca.crt -chain -passout pass:password
+    done
+
+    for host in ${ALL_HADOOP_SERVERS}; do
+        scp ${host}.p12 ${host}:/tmp/${host}.p12
+        scp ca.crt ${host}:/tmp/ca.crt
+        ssh $host "
+            keytool -import -noprompt -alias myOwnCA -file /tmp/ca.crt -storepass password -keypass password -keystore /etc/hadoop/conf/hadoop-private-keystore.jks
+            keytool --importkeystore -noprompt -deststorepass password -destkeypass password -destkeystore /etc/hadoop/conf/hadoop-private-keystore.jks -srckeystore /tmp/${host}.p12 -srcstoretype PKCS12 -srcstorepass password -alias ${host}
+
+            chmod 440 /etc/hadoop/conf/hadoop-private-keystore.jks
+            chown yarn:hadoop /etc/hadoop/conf/hadoop-private-keystore.jks
+            rm -f /tmp/ca.crt \"/tmp/${host}.p12\";
+            "
+    done
+
+    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
+        --config-type=kafka-broker --key="ssl.keystore.password"   --value="password",
+        --config-type=kafka-broker --key="ssl.key.password"   --value="password",
+        --config-type=kafka-broker --key="ssl.keystore.location"   --value="/etc/hadoop/conf/hadoop-private-keystore.jks",
+        --config-type=kafka-broker --key="ssl.truststore.location"   --value="${TRUST_STORE}",
+        --config-type=kafka-broker --key="ssl.truststore.password"   --value="changeit",
+        --config-type=kafka-broker --key="ssl.keystore.type"   --value="JKS",
+        --config-type=kafka-broker --key="ssl.truststore.type"   --value="JKS",
+        --config-type=kafka-broker --key="ssl.client.auth"   --value="requested",
+        --config-type=kafka-broker --key="security.inter.broker.protocol"   --value="SSL"
+
+EOF
+    rm -f doSet_version*
+    # In Ambari, perform Start ALL
+
+    #validate through:
+}
+
+#
 # Enable HBase UI SSL encryption.  Stop all HBase services first
 #
 ## each host gets its own SSL certificate
@@ -392,7 +472,7 @@ EOF
 }
 
 function usage() {
-    echo "Usage: $0 [--all] [--hbaseSSL] [--oozieSSL] [--hadoopSSL] [ --rangerSSL] [--ambariSSL]"
+    echo "Usage: $0 [--all] [--hbaseSSL] [--oozieSSL] [--hadoopSSL] [ --rangerSSL] [--ambariSSL] [--hiveSSL] [--kafkaSSL]"
     exit 1
 }
 
@@ -413,6 +493,8 @@ while [ "$#" -ge 1 ]; do
             rangerAdminSSLEnable
             rangerHDFSSSLEnable
             rangerHBaseSSLEnable
+            hiveSSLEnable
+            kafkaSSLEnable
         ;;
         --hbaseSSL)
             generateSSLCerts
@@ -440,6 +522,14 @@ while [ "$#" -ge 1 ]; do
         --ambariSSL)
             generateSSLCerts
             ambariSSLEnable
+        ;;
+        --hiveSSL)
+            generateSSLCerts
+            hiveSSLEnable
+        ;;
+        --kafkaSSL)
+            generateSSLCerts
+            kafkaSSLEnable
         ;;
         *)
             usage
