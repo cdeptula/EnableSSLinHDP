@@ -7,28 +7,11 @@
 #TODO add ranger yarn plugin ssl
 #TODO add ranger hive plugin ssl
 
-server1="sandbox.hortonworks.com"
-server2="sandbox.hortonworks.com"
-server3="sandbox.hortonworks.com"
+source enable-ssl.properties
 
-OOZIE_SERVER_ONE=$server2
-NAMENODE_SERVER_ONE=$server1
-RESOURCE_MANAGER_SERVER_ONE=$server3
-HISTORY_SERVER=$server1
-HBASE_MASTER_SERVER_ONE=$server2
-RANGER_ADMIN_SERVER=$server1
 
-ALL_NAMENODE_SERVERS="${NAMENODE_SERVER_ONE} $server2"
-ALL_OOZIE_SERVERS="${OOZIE_SERVER_ONE} $server3"
-ALL_HADOOP_SERVERS="$server1 $server2 $server3"
-ALL_HBASE_MASTER_SERVERS="${HBASE_MASTER_SERVER_ONE} $server3"
-ALL_HBASE_REGION_SERVERS="$server1 $server2 $server3"
-ALL_REAL_SERVERS="$server1 $server2 $server3"
-DOMAIN=$(hostname -d)
+export AMBARI_SERVER=$AMBARI_SERVER
 
-export AMBARI_SERVER=$server1
-AMBARI_PASS=4o12t0n
-CLUSTER_NAME=Sandbox
 
 #
 # PREP
@@ -47,7 +30,7 @@ Host *
 EOF
 
 #generate an ssh key for passwordless ssh if this is on the sandbox
-if echo $AMBARI_SERVER | grep -q -i "sandbox.hortonworks.com" ; then
+if echo $AMBARI_SERVER | grep -q -i "sandbox-hdp.hortonworks.com" ; then
     if [ ! -e ~/.ssh/id_rsa ]; then
         ssh-keygen -f ~/.ssh/id_rsa -N "" -q
     fi
@@ -55,10 +38,10 @@ if echo $AMBARI_SERVER | grep -q -i "sandbox.hortonworks.com" ; then
     chmod 600 ~/.ssh/authorized_keys
 fi
 
-#copy over configs.sh from Ambari server to what ever server this is
-if [ ! -e "/var/lib/ambari-server/resources/scripts/configs.sh" ]; then
+#copy over configs.py from Ambari server to what ever server this is
+if [ ! -e "/var/lib/ambari-server/resources/scripts/configs.py" ]; then
     mkdir -p /var/lib/ambari-server/resources/scripts/
-    scp ${AMBARI_SERVER}:/var/lib/ambari-server/resources/scripts/configs.sh /var/lib/ambari-server/resources/scripts/
+    scp ${AMBARI_SERVER}:/var/lib/ambari-server/resources/scripts/configs.py /var/lib/ambari-server/resources/scripts/
 fi
 
 #
@@ -190,10 +173,10 @@ function oozieSSLEnable() {
     done
 
     #make changes to Ambari to set oozie.base.url and add OOZIE_HTTP(S)_PORT
-    /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s set $AMBARI_SERVER $CLUSTER_NAME oozie-site oozie.base.url https://${OOZIE_SERVER_ONE}:11443/oozie &> /dev/null
-    /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s get $AMBARI_SERVER $CLUSTER_NAME oozie-env oozie-env
+    /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-site --key=oozie.base.url --value=https://${OOZIE_SERVER_ONE}:11443/oozie &> /dev/null
+    /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=get --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-env --file=oozie-env
     perl -pe 's/(\"content\".*?)\",$/$1\\nexport OOZIE_HTTP_PORT=11000\\nexport OOZIE_HTTPS_PORT=11443\",/' -i oozie-env
-     /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s set $AMBARI_SERVER $CLUSTER_NAME oozie-env oozie-env &> /dev/null
+     /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 -protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-env --file=oozie-env &> /dev/null
 
     rm -f doSet_* oozie-env
 
@@ -228,37 +211,37 @@ function hadoopSSLEnable() {
             "
     done
 
-    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s set $AMBARI_SERVER $CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
-        hdfs-site "dfs.https.enable"   "true",
-        hdfs-site "dfs.http.policy"   "HTTPS_ONLY",
-        hdfs-site "dfs.datanode.https.address"   "0.0.0.0:50475",
-        hdfs-site "dfs.namenode.https-address"   "0.0.0.0:50470",
+    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
+        --config-type=hdfs-site --key="dfs.https.enable"   --value="true",
+        --config-type=hdfs-site --key="dfs.http.policy"   --value="HTTPS_ONLY",
+        --config-type=hdfs-site --key="dfs.datanode.https.address"   --value="0.0.0.0:50475",
+        --config-type=hdfs-site --key="dfs.namenode.https-address"   --value="0.0.0.0:50470",
 
-        core-site "hadoop.ssl.require.client.cert"   "false",
-        core-site "hadoop.ssl.hostname.verifier"   "DEFAULT",
-        core-site "hadoop.ssl.keystores.factory.class"   "org.apache.hadoop.security.ssl.FileBasedKeyStoresFactory",
-        core-site "hadoop.ssl.server.conf"   "ssl-server.xml",
-        core-site "hadoop.ssl.client.conf"   "ssl-client.xml",
+        --config-type=core-site --key="hadoop.ssl.require.client.cert"   --value="false",
+        --config-type=core-site --key="hadoop.ssl.hostname.verifier"   --value="DEFAULT",
+        --config-type=core-site --key="hadoop.ssl.keystores.factory.class"   --value="org.apache.hadoop.security.ssl.FileBasedKeyStoresFactory",
+        --config-type=core-site --key="hadoop.ssl.server.conf"   --value="ssl-server.xml",
+        --config-type=core-site --key="hadoop.ssl.client.conf"   --value="ssl-client.xml",
 
-        mapred-site "mapreduce.jobhistory.http.policy"   "HTTPS_ONLY",
-        mapred-site "mapreduce.jobhistory.webapp.https.address"   "${HISTORY_SERVER}:19443",
-        mapred-site mapreduce.jobhistory.webapp.address "${HISTORY_SERVER}:19443",
+        --config-type=mapred-site --key="mapreduce.jobhistory.http.policy"   --value="HTTPS_ONLY",
+        --config-type=mapred-site --key="mapreduce.jobhistory.webapp.https.address"   --value="${HISTORY_SERVER}:19443",
+        --config-type=mapred-site --key=mapreduce.jobhistory.webapp.address --value="${HISTORY_SERVER}:19443",
 
-        yarn-site "yarn.http.policy"   "HTTPS_ONLY"
-        yarn-site "yarn.log.server.url"   "https://${HISTORY_SERVER}:19443/jobhistory/logs",
-        yarn-site "yarn.resourcemanager.webapp.https.address"   "${RESOURCE_MANAGER_SERVER_ONE}:8090",
-        yarn-site "yarn.nodemanager.webapp.https.address"   "0.0.0.0:45443",
+        --config-type=yarn-site --key="yarn.http.policy"   --value="HTTPS_ONLY"
+        --config-type=yarn-site --key="yarn.log.server.url"   --value="https://${HISTORY_SERVER}:19443/jobhistory/logs",
+        --config-type=yarn-site --key="yarn.resourcemanager.webapp.https.address"   --value="${RESOURCE_MANAGER_SERVER_ONE}:8090",
+        --config-type=yarn-site --key="yarn.nodemanager.webapp.https.address"   --value="0.0.0.0:45443",
 
-        ssl-server "ssl.server.keystore.password"   "password",
-        ssl-server "ssl.server.keystore.keypassword"   "password",
-        ssl-server "ssl.server.keystore.location"   "/etc/hadoop/conf/hadoop-private-keystore.jks",
-        ssl-server "ssl.server.truststore.location"   "${TRUST_STORE}",
-        ssl-server "ssl.server.truststore.password"   "changeit",
+        --config-type=ssl-server --key="ssl.server.keystore.password"   --value="password",
+        --config-type=ssl-server --key="ssl.server.keystore.keypassword"   --value="password",
+        --config-type=ssl-server --key="ssl.server.keystore.location"   --value="/etc/hadoop/conf/hadoop-private-keystore.jks",
+        --config-type=ssl-server --key="ssl.server.truststore.location"   --value="${TRUST_STORE}",
+        --config-type=ssl-server --key="ssl.server.truststore.password"   --value="changeit",
 
-        ssl-client "ssl.client.keystore.location"   "${TRUST_STORE}",
-        ssl-client "ssl.client.keystore.password"   "changeit",
-        ssl-client "ssl.client.truststore.password"   "changeit",
-        ssl-client "ssl.client.truststore.location"   "${TRUST_STORE}"
+        --config-type=ssl-client --key="ssl.client.keystore.location"   --value="${TRUST_STORE}",
+        --config-type=ssl-client --key="ssl.client.keystore.password"   --value="changeit",
+        --config-type=ssl-client --key="ssl.client.truststore.password"   --value="changeit",
+        --config-type=ssl-client --key="ssl.client.truststore.location"   --value="${TRUST_STORE}"
 EOF
     rm -f doSet_version*
     # In Ambari, perform Start ALL
@@ -291,7 +274,7 @@ function hbaseSSLEnable() {
             "
     done
 
-    /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s set $AMBARI_SERVER $CLUSTER_NAME hbase-site "hbase.ssl.enabled" "true" &> /dev/null || echo "Failed to change hbase.ssl.enabled in Ambari"
+    /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port=8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=hbase-site --key="hbase.ssl.enabled" --value="true" &> /dev/null || echo "Failed to change hbase.ssl.enabled in Ambari"
     rm -f doSet_version*
 
     # In Ambari, perform Start ALL
@@ -315,22 +298,22 @@ function rangerAdminSSLEnable() {
         chown ranger:ranger /etc/ranger/admin/conf/${RANGER_PRIVATE_KEYSTORE}
         "
 
-    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s set $AMBARI_SERVER $CLUSTER_NAME $p &>/dev/null  || echo "Failed to change $p in Ambari"; done
-        ranger-admin-site ranger.https.attrib.keystore.file /etc/ranger/admin/conf/${RANGER_PRIVATE_KEYSTORE}
-        ranger-admin-site  ranger.service.https.attrib.keystore.file /etc/ranger/admin/conf/${RANGER_PRIVATE_KEYSTORE}
-        ranger-admin-site ranger.service.https.attrib.client.auth "false"
-        ranger-admin-site ranger.service.https.attrib.keystore.pass "changeit"
-        ranger-admin-site ranger.service.https.attrib.keystore.keyalias rangeradmintrust
+    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port=8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &>/dev/null  || echo "Failed to change $p in Ambari"; done
+        --config-type=ranger-admin-site --key=ranger.https.attrib.keystore.file --value=/etc/ranger/admin/conf/${RANGER_PRIVATE_KEYSTORE}
+        --config-type=ranger-admin-site  --key=ranger.service.https.attrib.keystore.file --value=/etc/ranger/admin/conf/${RANGER_PRIVATE_KEYSTORE}
+        --config-type=ranger-admin-site --key=ranger.service.https.attrib.client.auth --value="false"
+        --config-type=ranger-admin-site --key=ranger.service.https.attrib.keystore.pass --value="changeit"
+        --config-type=ranger-admin-site --key=ranger.service.https.attrib.keystore.keyalias --value=rangeradmintrust
 
-        ranger-admin-site "ranger.service.http.enabled"   "false",
-        ranger-admin-site "ranger.service.https.attrib.clientAuth"   "want",
-        ranger-admin-site "ranger.service.https.attrib.keystore.pass"   "password",
-        ranger-admin-site "ranger.service.https.attrib.ssl.enabled"   "true",
+        --config-type=ranger-admin-site --key="ranger.service.http.enabled"   --value="false",
+        --config-type=ranger-admin-site --key="ranger.service.https.attrib.clientAuth"   --value="want",
+        --config-type=ranger-admin-site --key="ranger.service.https.attrib.keystore.pass"   --value="password",
+        --config-type=ranger-admin-site --key="ranger.service.https.attrib.ssl.enabled"   --value="true",
 
-        ranger-ugsync-site "ranger.usersync.truststore.file" "${TRUST_STORE}",
-        ranger-ugsync-site "ranger.usersync.truststore.password" "changeit",
+        --config-type=ranger-ugsync-site --key="ranger.usersync.truststore.file" --value="${TRUST_STORE}",
+        --config-type=ranger-ugsync-site --key="ranger.usersync.truststore.password" --value="changeit",
 
-        admin-properties "policymgr_external_url"  "https://${RANGER_ADMIN_SERVER}:6182"
+        --config-type=admin-properties --key="policymgr_external_url"  --value="https://${RANGER_ADMIN_SERVER}:6182"
 EOF
     rm -f doSet_version*
 
@@ -357,12 +340,12 @@ function rangerHDFSSSLEnable() {
             "
     done
 
-    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s set $AMBARI_SERVER $CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
+    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port=8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
 
-        ranger-hdfs-policymgr-ssl "xasecure.policymgr.clientssl.keystore"   /etc/hadoop/conf/${RANGER_HDFS_PRIVATE_KEYSTORE},
-        ranger-hdfs-policymgr-ssl "xasecure.policymgr.clientssl.keystore.password"   "password",
-        ranger-hdfs-policymgr-ssl "xasecure.policymgr.clientssl.truststore"  "${TRUST_STORE}",
-        ranger-hdfs-policymgr-ssl "xasecure.policymgr.clientssl.truststore.password"   "changeit"
+        --config-type=ranger-hdfs-policymgr-ssl --key="xasecure.policymgr.clientssl.keystore"   --value=/etc/hadoop/conf/${RANGER_HDFS_PRIVATE_KEYSTORE},
+        --config-type=ranger-hdfs-policymgr-ssl --key="xasecure.policymgr.clientssl.keystore.password"   --value="password",
+        --config-type=ranger-hdfs-policymgr-ssl --key="xasecure.policymgr.clientssl.truststore"  --value="${TRUST_STORE}",
+        --config-type=ranger-hdfs-policymgr-ssl --key="xasecure.policymgr.clientssl.truststore.password"   --value="changeit"
 EOF
     rm -f doSet_version*
     #add to Ranger Admin UI
@@ -393,11 +376,11 @@ function rangerHBaseSSLEnable() {
             "
     done
 
-    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.sh -u admin -p $AMBARI_PASS -port 8443 -s set $AMBARI_SERVER $CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
-        ranger-hbase-policymgr-ssl "xasecure.policymgr.clientssl.keystore"  /etc/hadoop/conf/${RANGER_HBASE_PRIVATE_KEYSTORE},
-        ranger-hbase-policymgr-ssl "xasecure.policymgr.clientssl.keystore.password"  "password"
-        ranger-hbase-policymgr-ssl "xasecure.policymgr.clientssl.truststore" "${TRUST_STORE}",
-        ranger-hbase-policymgr-ssl "xasecure.policymgr.clientssl.truststore.password"  "changeit"
+    cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port=8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
+        --config-type=ranger-hbase-policymgr-ssl --key="xasecure.policymgr.clientssl.keystore"  --value=/etc/hadoop/conf/${RANGER_HBASE_PRIVATE_KEYSTORE},
+        --config-type=ranger-hbase-policymgr-ssl --key="xasecure.policymgr.clientssl.keystore.password"  --value="password"
+        --config-type=ranger-hbase-policymgr-ssl --key="xasecure.policymgr.clientssl.truststore" --value="${TRUST_STORE}",
+        --config-type=ranger-hbase-policymgr-ssl --key="xasecure.policymgr.clientssl.truststore.password"  --value="changeit"
 EOF
     rm -f doSet_version*
     #add CN via Ranger Admin UI
