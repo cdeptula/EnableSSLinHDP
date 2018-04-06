@@ -79,6 +79,9 @@ function generateSSLCerts() {
         scp ca.crt ${host}:/tmp/ca.crt
         ssh $host "keytool -import -noprompt -alias myOwnCA -file /tmp/ca.crt -storepass changeit -keystore $TRUST_STORE; rm -f /tmp/ca.crt"
 
+        scp ${DOMAIN}.crt ${host}:/tmp/${DOMAIN}.crt
+        ssh $host "keytool -import -noprompt -alias oozie -file /tmp/${DOMAIN}.crt -storepass changeit -keystore $TRUST_STORE; rm -f /tmp/${DOMAIN}.crt"
+
         for cert in ${ALL_REAL_SERVERS}; do
             scp $cert.crt ${host}:/tmp/$cert.crt
             ssh $host "keytool -import -noprompt -alias ${cert} -file /tmp/${cert}.crt -storepass changeit -keystore $TRUST_STORE; rm -f \"/tmp/${cert}.crt\""
@@ -93,6 +96,8 @@ function generateSSLCerts() {
             echo $host verified private key and public key pair
         fi
     done
+
+    cp *.crt ${CRT_STORAGE}
 }
 #
 # Enable Ambari SSL encryption and truststore.
@@ -175,8 +180,9 @@ function oozieSSLEnable() {
     #make changes to Ambari to set oozie.base.url and add OOZIE_HTTP(S)_PORT
     /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-site --key=oozie.base.url --value=https://${OOZIE_SERVER_ONE}:11443/oozie &> /dev/null
     /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=get --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-env --file=oozie-env
-    perl -pe 's/(\"content\".*?)\",$/$1\\nexport OOZIE_HTTP_PORT=11000\\nexport OOZIE_HTTPS_PORT=11443\",/' -i oozie-env
+    perl -pe 's/(\"content\".*?)\",$/$1\\nexport OOZIE_HTTP_PORT={{oozie_server_port}}\\nexport OOZIE_HTTPS_PORT={{oozie_server_port}}\",/' -i oozie-env
      /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 -protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-env --file=oozie-env &> /dev/null
+
 
     rm -f doSet_* oozie-env
 
@@ -256,28 +262,28 @@ EOF
 ## some of the keyimports may fail because the HBase services run on the same hosts as the Hadoop services
 function hiveSSLEnable() {
 
-    for host in ${ALL_HADOOP_SERVERS}; do
+    for host in ${ALL_HIVE_SERVERS}; do
         if [ -e "${host}.p12" ]; then continue; fi
         openssl pkcs12 -export -in ${host}.crt -inkey ${host}.key -out ${host}.p12 -name ${host} -CAfile ca.crt -chain -passout pass:password
     done
 
-    for host in ${ALL_HADOOP_SERVERS}; do
+    for host in ${ALL_HIVE_SERVERS}; do
         scp ${host}.p12 ${host}:/tmp/${host}.p12
         scp ca.crt ${host}:/tmp/ca.crt
         ssh $host "
-            keytool -import -noprompt -alias myOwnCA -file /tmp/ca.crt -storepass password -keypass password -keystore /etc/hadoop/conf/hadoop-private-keystore.jks
-            keytool --importkeystore -noprompt -deststorepass password -destkeypass password -destkeystore /etc/hadoop/conf/hadoop-private-keystore.jks -srckeystore /tmp/${host}.p12 -srcstoretype PKCS12 -srcstorepass password -alias ${host}
+            keytool -import -noprompt -alias myOwnCA -file /tmp/ca.crt -storepass password -keypass password -keystore /etc/hive/conf/hive-private-keystore.jks
+            keytool --importkeystore -noprompt -deststorepass password -destkeypass password -destkeystore /etc/hive/conf/hive-private-keystore.jks -srckeystore /tmp/${host}.p12 -srcstoretype PKCS12 -srcstorepass password -alias ${host}
 
-            chmod 440 /etc/hadoop/conf/hadoop-private-keystore.jks
-            chown yarn:hadoop /etc/hadoop/conf/hadoop-private-keystore.jks
+            chmod 440 /etc/hive/conf/hive-private-keystore.jks
+            chown hive:hadoop /etc/hive/conf/hive-private-keystore.jks
             rm -f /tmp/ca.crt \"/tmp/${host}.p12\";
             "
     done
 
     cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
         --config-type=hive-site --key="hive.server2.use.SSL"   --value="true",
-        --config-type=ssl-server --key="hive.server2.keystore.password"   --value="password",
-        --config-type=ssl-server --key="hive.server2.keystore.path"   --value="/etc/hadoop/conf/hadoop-private-keystore.jks"
+        --config-type=hiveserver2-site --key="hive.server2.keystore.password"   --value="password",
+        --config-type=hiveserver2-site --key="hive.server2.keystore.path"   --value="/etc/hive/conf/hive-private-keystore.jks"
 
 EOF
     rm -f doSet_version*
@@ -320,6 +326,7 @@ function kafkaSSLEnable() {
         --config-type=kafka-broker --key="ssl.keystore.type"   --value="JKS",
         --config-type=kafka-broker --key="ssl.truststore.type"   --value="JKS",
         --config-type=kafka-broker --key="ssl.client.auth"   --value="requested",
+        --config-type=kafka-broker --key="listeners" --value="SSL://localhost:6667"
         --config-type=kafka-broker --key="security.inter.broker.protocol"   --value="SSL"
 
 EOF
