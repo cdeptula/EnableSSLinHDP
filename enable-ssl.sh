@@ -180,7 +180,7 @@ function oozieSSLEnable() {
     #make changes to Ambari to set oozie.base.url and add OOZIE_HTTP(S)_PORT
     /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-site --key=oozie.base.url --value=https://${OOZIE_SERVER_ONE}:11443/oozie &> /dev/null
     /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=get --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-env --file=oozie-env
-    perl -pe 's/(\"content\".*?)\",$/$1\\nexport OOZIE_HTTP_PORT={{oozie_server_port}}\\nexport OOZIE_HTTPS_PORT={{oozie_server_port}}\",/' -i oozie-env
+    perl -pe 's/(\"content\".*?)\",$/$1\\nexport OOZIE_HTTP_PORT=\{\{oozie_server_port\}\}\\nexport OOZIE_HTTPS_PORT=\{\{oozie_server_port\}\}\",/' -i oozie-env
      /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 -protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME --config-type=oozie-env --file=oozie-env &> /dev/null
 
 
