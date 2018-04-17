@@ -283,7 +283,8 @@ function hiveSSLEnable() {
     cat <<EOF | while read p; do p=${p/,}; p=${p//\"}; if [ -z "$p" ]; then continue; fi; /var/lib/ambari-server/resources/scripts/configs.py -u admin -p $AMBARI_PASS --port 8443 --protocol=https --action=set --host=$AMBARI_SERVER --cluster=$CLUSTER_NAME $p &> /dev/null || echo "Failed to change $p in Ambari"; done
         --config-type=hive-site --key="hive.server2.use.SSL"   --value="true",
         --config-type=hiveserver2-site --key="hive.server2.keystore.password"   --value="password",
-        --config-type=hiveserver2-site --key="hive.server2.keystore.path"   --value="/etc/hive/conf/hive-private-keystore.jks"
+        --config-type=hiveserver2-site --key="hive.server2.keystore.path"   --value="/etc/hive/conf/hive-private-keystore.jks",
+        --config-type=hiveserver2-site --key="hive.server2.transport.mode" --value="http"
 
 EOF
     rm -f doSet_version*
